@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Kill Matchman</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Quicksand:wght@500;700&family=Bangers&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="gameHeader">
+    <div id="titleBadge">KILL MATCHMAN</div>
+    <div id="killCounter">
+      <span id="killIcon">💀</span>
+      <span id="killCount">0</span>
+    </div>
+  </div>
+
+  <div id="bottomBar">
+    <button id="resetBtn" title="Reset Game">
+      <span class="reset-icon">🗑️</span>
+      <span class="reset-label">RESET</span>
+    </button>
+
+    <div id="tabSwitcher">
+      <button class="tab-btn active" data-tab="weapons">⚔️ 武器</button>
+      <button class="tab-btn" data-tab="items">📦 物品</button>
+    </div>
+
+    <div id="weaponList" class="slot-list"></div>
+    <div id="itemList" class="slot-list hidden"></div>
+  </div>
+
+  <div id="dragGhost" class="hidden"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

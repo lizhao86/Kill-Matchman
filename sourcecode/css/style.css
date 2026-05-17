@@ -1,0 +1,302 @@
+@keyframes popIn {
+  0% { transform: scale(0) rotate(-10deg); opacity: 0; }
+  60% { transform: scale(1.15) rotate(2deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+@keyframes floatBadge {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-3px) rotate(0deg); }
+}
+
+@keyframes slotAppear {
+  0% { transform: translateY(20px) scale(0.8); opacity: 0; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Quicksand', 'Segoe UI', sans-serif;
+  background: #1a1a2e;
+  cursor: crosshair;
+}
+
+#gameCanvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ── Game Header ── */
+#gameHeader {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+#titleBadge {
+  font-family: 'Bangers', cursive;
+  font-size: 26px;
+  color: #fff;
+  background: linear-gradient(135deg, #ff4757, #ff6b81);
+  padding: 4px 16px 6px;
+  border-radius: 8px;
+  letter-spacing: 2px;
+  box-shadow: 0 3px 0 #c0392b, 0 6px 12px rgba(0,0,0,0.3);
+  text-shadow: 2px 2px 0 rgba(0,0,0,0.25);
+  animation: floatBadge 3s ease-in-out infinite;
+}
+
+#killCounter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(8px);
+  padding: 5px 14px;
+  border-radius: 20px;
+  border: 2px solid rgba(255,255,255,0.15);
+}
+
+#killIcon { font-size: 18px; }
+
+#killCount {
+  font-family: 'Bangers', cursive;
+  font-size: 22px;
+  color: #ffd32a;
+  letter-spacing: 1px;
+  text-shadow: 1px 1px 0 rgba(0,0,0,0.4);
+  transition: transform 0.2s;
+}
+
+/* ── Bottom Bar ── */
+#bottomBar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 90px;
+  background: linear-gradient(180deg, rgba(60,40,20,0.95), rgba(45,30,15,0.98));
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 8px;
+  z-index: 10;
+  border-top: 3px solid rgba(180,130,60,0.6);
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,200,100,0.15);
+}
+
+#bottomBar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,200,100,0.4), transparent);
+}
+
+/* ── Reset Button ── */
+#resetBtn {
+  width: 50px;
+  height: 62px;
+  min-width: 50px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #e74c3c, #c0392b);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  transition: transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 3px 0 #962d22, 0 5px 10px rgba(0,0,0,0.3);
+  animation: popIn 0.4s ease-out;
+}
+
+.reset-icon { font-size: 20px; line-height: 1; }
+.reset-label { font-family: 'Bangers', cursive; font-size: 9px; letter-spacing: 1px; opacity: 0.85; }
+
+#resetBtn:hover { transform: translateY(-2px); box-shadow: 0 5px 0 #962d22, 0 8px 16px rgba(0,0,0,0.4); }
+#resetBtn:active { transform: translateY(2px); box-shadow: 0 1px 0 #962d22, 0 2px 4px rgba(0,0,0,0.3); }
+
+/* ── Tab Switcher ── */
+#tabSwitcher {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 52px;
+}
+
+.tab-btn {
+  border: none;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.5);
+  font-family: 'Quicksand', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 6px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  white-space: nowrap;
+}
+
+.tab-btn:hover {
+  background: rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.8);
+}
+
+.tab-btn.active {
+  background: rgba(255,211,42,0.25);
+  color: #ffd32a;
+  border: 1px solid rgba(255,211,42,0.4);
+}
+
+/* ── Slot Lists ── */
+.slot-list {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  flex: 1;
+  padding: 4px 0;
+  scrollbar-width: none;
+}
+
+.slot-list::-webkit-scrollbar { display: none; }
+.slot-list.hidden { display: none; }
+
+.weapon-slot, .item-slot {
+  width: 58px;
+  height: 64px;
+  min-width: 58px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.04));
+  border: 2px solid rgba(255,255,255,0.12);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  cursor: grab;
+  transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1), border-color 0.2s, box-shadow 0.2s;
+  touch-action: none;
+  animation: slotAppear 0.4s ease-out backwards;
+}
+
+.weapon-slot:nth-child(1), .item-slot:nth-child(1) { animation-delay: 0.05s; }
+.weapon-slot:nth-child(2), .item-slot:nth-child(2) { animation-delay: 0.1s; }
+.weapon-slot:nth-child(3), .item-slot:nth-child(3) { animation-delay: 0.15s; }
+.weapon-slot:nth-child(4), .item-slot:nth-child(4) { animation-delay: 0.2s; }
+.weapon-slot:nth-child(5), .item-slot:nth-child(5) { animation-delay: 0.25s; }
+.weapon-slot:nth-child(6), .item-slot:nth-child(6) { animation-delay: 0.3s; }
+.item-slot:nth-child(7) { animation-delay: 0.35s; }
+.item-slot:nth-child(8) { animation-delay: 0.4s; }
+
+.weapon-slot:hover, .item-slot:hover {
+  border-color: rgba(255,200,100,0.6);
+  transform: translateY(-4px) scale(1.05);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+}
+
+.weapon-slot:active, .item-slot:active {
+  cursor: grabbing;
+  transform: scale(0.92);
+  box-shadow: none;
+}
+
+.weapon-slot.active, .item-slot.active {
+  border-color: #ffd32a;
+  background: rgba(255,211,42,0.2);
+  box-shadow: 0 0 12px rgba(255,211,42,0.4);
+  transform: translateY(-3px);
+}
+
+.weapon-icon, .item-icon {
+  font-size: 26px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
+}
+
+.weapon-name, .item-name {
+  font-family: 'Quicksand', sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.65);
+}
+
+.weapon-dmg {
+  font-family: 'Bangers', cursive;
+  font-size: 10px;
+  color: #ff6b6b;
+  letter-spacing: 0.5px;
+  margin-top: -1px;
+}
+
+.weapon-dmg.poison { color: #51cf66; }
+
+.item-effect {
+  font-family: 'Bangers', cursive;
+  font-size: 9px;
+  color: #51cf66;
+  letter-spacing: 0.5px;
+  margin-top: -1px;
+}
+
+/* ── Drag ghost ── */
+#dragGhost {
+  position: absolute;
+  pointer-events: none;
+  z-index: 100;
+  font-size: 48px;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 6px 12px rgba(0,0,0,0.5));
+  transition: none;
+}
+
+#dragGhost.hidden { display: none; }
+
+.table-icon-canvas {
+  width: 40px;
+  height: 32px;
+  display: block;
+}
+
+/* ── Responsive ── */
+@media (max-width: 480px) {
+  #gameHeader { top: 8px; left: 10px; gap: 8px; }
+  #titleBadge { font-size: 18px; padding: 3px 10px 4px; }
+  #killCount { font-size: 18px; }
+
+  #bottomBar { height: 76px; padding: 0 8px; gap: 5px; }
+
+  .weapon-slot, .item-slot { width: 48px; height: 54px; min-width: 48px; }
+  .weapon-icon, .item-icon { font-size: 22px; }
+  .weapon-name, .item-name { font-size: 8px; }
+
+  #resetBtn { width: 42px; height: 54px; min-width: 42px; }
+  .reset-icon { font-size: 16px; }
+  .reset-label { font-size: 7px; }
+
+  .tab-btn { font-size: 10px; padding: 4px 4px; }
+  #tabSwitcher { min-width: 44px; }
+}

@@ -1,0 +1,68 @@
+export const STICKMAN_TYPES = {
+  normal: {
+    id: 'normal',
+    name: '普通',
+    hp: 100,
+    speed: 60,
+    dodgeChance: 0.4,
+    dodgeChanceLow: 0.7,
+    dmgMultiplier: 1.0,
+    color: '#333',
+    hitColor: '#ff3333',
+    poisonColor: '#33aa33',
+    lineWidth: 3,
+    canEat: true,
+    canRest: true,
+  },
+  zombie: {
+    id: 'zombie',
+    name: '僵尸',
+    hp: 80,
+    speed: 35,
+    dodgeChance: 0.1,
+    dodgeChanceLow: 0.2,
+    dmgMultiplier: 1.0,
+    color: '#44aa44',
+    hitColor: '#ff5555',
+    poisonColor: '#228822',
+    lineWidth: 3,
+    canEat: false,
+    canRest: false,
+  },
+  armored: {
+    id: 'armored',
+    name: '装甲',
+    hp: 200,
+    speed: 45,
+    dodgeChance: 0.2,
+    dodgeChanceLow: 0.35,
+    dmgMultiplier: 0.5,
+    color: '#555',
+    hitColor: '#ff4444',
+    poisonColor: '#338833',
+    lineWidth: 5,
+    canEat: true,
+    canRest: true,
+  },
+  soldier: {
+    id: 'soldier',
+    name: '军人',
+    hp: 150,
+    speed: 80,
+    dodgeChance: 0.7,
+    dodgeChanceLow: 0.85,
+    dmgMultiplier: 1.0,
+    color: '#556b2f',
+    hitColor: '#ff3333',
+    poisonColor: '#2d5a1e',
+    lineWidth: 3,
+    canEat: true,
+    canRest: true,
+  },
+};
+
+const typeKeys = Object.keys(STICKMAN_TYPES);
+
+export function getRandomType() {
+  return STICKMAN_TYPES[typeKeys[Math.floor(Math.random() * typeKeys.length)]];
+}
