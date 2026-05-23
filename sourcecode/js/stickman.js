@@ -1,3 +1,5 @@
+import { Particle } from './particles.js';
+
 const STATES = {
   WALKING: 'walking',
   HIT: 'hit',
@@ -5,7 +7,11 @@ const STATES = {
   SEEKING_FOOD: 'seeking_food',
   SEEKING_FURNITURE: 'seeking_furniture',
   RESTING: 'resting',
+  FLEEING: 'fleeing',
+  CHASING: 'chasing',
+  ATTACKING: 'attacking',
   DYING: 'dying',
+  CONVERTING: 'converting',
   SOUL_ASCENDING: 'soul_ascending',
   DESPAWN: 'despawn',
 };
@@ -74,7 +80,21 @@ export class Stickman {
     // food seeking
     this.seekTarget = null;
 
+    // combat system
+    this.combatTarget = null;
+    this.attackCooldown = 0;
+    this.fleeTimer = 0;
+    this.attackSwing = 0;
+
+    // conversion animation
+    this.convertTimer = 0;
+    this.convertDuration = 1.8;
+    this.convertFlashTimer = 0;
+    this.convertShakeTimer = 0;
+    this.killedByZombie = false;
+
     this.onDeath = null;
+    this.onConvert = null;
     this.dead = false;
   }
 
@@ -114,7 +134,9 @@ export class Stickman {
   isAlive() {
     return this.state === STATES.WALKING || this.state === STATES.HIT ||
            this.state === STATES.POISONED || this.state === STATES.SEEKING_FOOD ||
-           this.state === STATES.SEEKING_FURNITURE || this.state === STATES.RESTING;
+           this.state === STATES.SEEKING_FURNITURE || this.state === STATES.RESTING ||
+           this.state === STATES.FLEEING || this.state === STATES.CHASING ||
+           this.state === STATES.ATTACKING;
   }
 
   isDone() {
@@ -154,7 +176,7 @@ export class Stickman {
     const dx = this.x - fromX;
     const dy = this.y - fromY;
     const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-    const knockStr = weaponType === 'greatsword' ? 150 : weaponType === 'bomb' ? 200 : weaponType === 'whip' ? 120 : 60;
+    const knockStr = weaponType === 'greatsword' ? 150 : weaponType === 'bomb' ? 200 : weaponType === 'whip' ? 120 : weaponType === 'zombie_attack' ? 80 : weaponType === 'hunter_attack' ? 60 : 60;
     this.knockbackVx = (dx / dist) * knockStr;
     this.knockbackVy = (dy / dist) * knockStr * 0.3;
 
@@ -171,7 +193,17 @@ export class Stickman {
       particleSystem.spawnExplosion(this.x, this.y - this.bodyHeight / 2);
     }
 
-    if (this.hp <= 0) this._startDying();
+    if (this.hp <= 0) {
+      if (weaponType === 'zombie_attack') {
+        this.killedByZombie = true;
+      }
+      this._startDying();
+    }
+  }
+
+  takeCombatDamage(amount, attacker, particleSystem) {
+    const weaponType = attacker.type.id === 'zombie' ? 'zombie_attack' : 'hunter_attack';
+    this.takeDamage(amount, attacker.x, attacker.y, weaponType, particleSystem);
   }
 
   heal(amount, particleSystem) {
@@ -189,7 +221,36 @@ export class Stickman {
     this._speedBuffDurationPending = buffDuration;
   }
 
+  convertToZombie(zombieType) {
+    this.type = zombieType;
+    this.maxHp = zombieType.hp;
+    this.hp = this.maxHp;
+    this.baseSpeed = zombieType.speed;
+    this.speed = this.baseSpeed;
+    this.poisoned = false;
+    this.poisonStacks = 0;
+    this.poisonTimer = 0;
+    this.seekTarget = null;
+    this.combatTarget = null;
+    this.state = STATES.WALKING;
+    this.dead = false;
+    this.killedByZombie = false;
+  }
+
   _startDying() {
+    if (this.killedByZombie && this.type.id !== 'zombie') {
+      this.state = STATES.CONVERTING;
+      this.convertTimer = 0;
+      this.convertFlashTimer = 0;
+      this.convertShakeTimer = 0;
+      this.poisoned = false;
+      this.poisonStacks = 0;
+      this.poisonTimer = 0;
+      this.seekTarget = null;
+      this.combatTarget = null;
+      return;
+    }
+
     this.state = STATES.DYING;
     this.dyingTimer = this.dyingDuration;
     this.collapseAngle = 0;
@@ -197,7 +258,7 @@ export class Stickman {
     this.poisonStacks = 0;
     this.poisonTimer = 0;
     this.seekTarget = null;
-    this.restTarget = null;
+    this.combatTarget = null;
     if (this.onDeath) this.onDeath(this);
   }
 
@@ -215,12 +276,14 @@ export class Stickman {
     this.speed = this.hp < (this.maxHp * 0.3) ? this.baseSpeed * 2 : this.baseSpeed * 1.3;
     this.dirChangeTimer = 0.8;
     this.seekTarget = null;
-    if (this.state === STATES.SEEKING_FOOD || this.state === STATES.SEEKING_FURNITURE) {
+    this.combatTarget = null;
+    if (this.state === STATES.SEEKING_FOOD || this.state === STATES.SEEKING_FURNITURE ||
+        this.state === STATES.CHASING || this.state === STATES.FLEEING) {
       this.state = STATES.WALKING;
     }
   }
 
-  update(dt, particleSystem, items) {
+  update(dt, particleSystem, items, allStickmen) {
     if (this.screenShake > 0) {
       this.screenShake -= dt;
       if (this.screenShake < 0) this.screenShake = 0;
@@ -233,12 +296,12 @@ export class Stickman {
       }
     }
 
+    if (this.attackCooldown > 0) this.attackCooldown -= dt;
+
     switch (this.state) {
       case STATES.WALKING:
-        this._updateWalking(dt, particleSystem, items);
-        break;
       case STATES.POISONED:
-        this._updateWalking(dt, particleSystem, items);
+        this._updateWalking(dt, particleSystem, items, allStickmen);
         break;
       case STATES.HIT:
         this._updateHit(dt);
@@ -249,6 +312,18 @@ export class Stickman {
         break;
       case STATES.RESTING:
         this._updateResting(dt, particleSystem);
+        break;
+      case STATES.FLEEING:
+        this._updateFleeing(dt, particleSystem, allStickmen);
+        break;
+      case STATES.CHASING:
+        this._updateChasing(dt, particleSystem, allStickmen);
+        break;
+      case STATES.ATTACKING:
+        this._updateAttacking(dt, particleSystem);
+        break;
+      case STATES.CONVERTING:
+        this._updateConverting(dt, particleSystem);
         break;
       case STATES.DYING:
         this._updateDying(dt);
@@ -262,7 +337,7 @@ export class Stickman {
     }
   }
 
-  _updateWalking(dt, particleSystem, items) {
+  _updateWalking(dt, particleSystem, items, allStickmen) {
     this.walkCycle += dt * (this.type.id === 'zombie' ? 4 : 6);
 
     // poison
@@ -286,21 +361,28 @@ export class Stickman {
       }
     }
 
+    // Combat AI
+    if (allStickmen && this._tryCombatAI(allStickmen, items, particleSystem)) return;
+
     // AI: seek items
-    if (items && Math.random() < 0.02) {
-      if (this.hp < this.maxHp * 0.5 && this.type.canEat) {
-        const food = this._findNearestItem(items, 'food');
-        if (food) {
-          this.seekTarget = food;
-          this.state = STATES.SEEKING_FOOD;
-          return;
-        }
-      } else if (this.type.canRest && this.speedBuffTimer <= 0 && Math.random() < 0.3) {
-        const furn = this._findNearestItem(items, 'furniture');
-        if (furn && furn.def.restDuration) {
-          this.seekTarget = furn;
-          this.state = STATES.SEEKING_FURNITURE;
-          return;
+    if (items) {
+      const foodUrgency = this.hp < this.maxHp && this.type.canEat;
+      const seekChance = foodUrgency ? 0.15 : 0.02;
+      if (Math.random() < seekChance) {
+        if (foodUrgency) {
+          const food = this._findNearestItem(items, 'food');
+          if (food) {
+            this.seekTarget = food;
+            this.state = STATES.SEEKING_FOOD;
+            return;
+          }
+        } else if (this.type.canRest && this.speedBuffTimer <= 0 && Math.random() < 0.3) {
+          const furn = this._findNearestItem(items, 'furniture');
+          if (furn && furn.def.restDuration) {
+            this.seekTarget = furn;
+            this.state = STATES.SEEKING_FURNITURE;
+            return;
+          }
         }
       }
     }
@@ -324,29 +406,196 @@ export class Stickman {
     if (items) this._avoidTables(items);
   }
 
-  _updateSeeking(dt, particleSystem, items) {
-    this.walkCycle += dt * (this.type.id === 'zombie' ? 4 : 6);
+  _tryCombatAI(allStickmen, items, particleSystem) {
+    const role = this.type.combatRole;
 
-    if (this.poisoned) {
-      this.poisonTimer -= dt;
-      this.poisonTickTimer += dt;
-      if (this.poisonTickTimer >= 1) {
-        this.poisonTickTimer -= 1;
-        const dmg = this.poisonBaseDmg + (this.poisonStacks - 1) * 3;
-        this.hp = Math.max(0, this.hp - dmg);
-        particleSystem.spawnDamage(this.x, this.y - this.bodyHeight - 20, dmg);
-        if (this.hp <= 0) { this._startDying(); return; }
+    if (role === 'flee') {
+      const zombie = this._findNearestEnemy(allStickmen, 'zombie');
+      if (zombie) {
+        const dist = this._distTo(zombie);
+        if (dist < this.type.detectRange) {
+          this.combatTarget = zombie;
+          this.state = STATES.FLEEING;
+          this.fleeTimer = 1.5 + Math.random();
+          return true;
+        }
       }
-      particleSystem.spawnPoisonBubble(this.x, this.y - this.bodyHeight / 2);
-      if (this.poisonTimer <= 0) {
-        this.poisoned = false;
-        this.poisonStacks = 0;
-        this.speed = this.baseSpeed;
+    } else if (role === 'aggressor') {
+      const target = this._findNearestNonZombie(allStickmen);
+      if (target) {
+        const dist = this._distTo(target);
+        if (dist < this.type.detectRange) {
+          this.combatTarget = target;
+          this.state = STATES.CHASING;
+          return true;
+        }
+      }
+    } else if (role === 'hunter') {
+      // hunters prioritize food if hurt, then hunt zombies
+      if (this.hp < this.maxHp && this.type.canEat && items) {
+        const food = this._findNearestItem(items, 'food');
+        if (food) {
+          this.seekTarget = food;
+          this.state = STATES.SEEKING_FOOD;
+          return true;
+        }
+      }
+      const zombie = this._findNearestEnemy(allStickmen, 'zombie');
+      if (zombie) {
+        const dist = this._distTo(zombie);
+        if (dist < this.type.detectRange) {
+          this.combatTarget = zombie;
+          this.state = STATES.CHASING;
+          return true;
+        }
       }
     }
 
+    return false;
+  }
+
+  _updateFleeing(dt, particleSystem, allStickmen) {
+    this.walkCycle += dt * 8;
+    this.fleeTimer -= dt;
+
+    this._updatePoison(dt, particleSystem);
+    if (this.state === STATES.DYING || this.state === STATES.CONVERTING) return;
+
+    if (this.fleeTimer <= 0 || !this.combatTarget || !this.combatTarget.isAlive()) {
+      this.combatTarget = null;
+      this.state = this.poisoned ? STATES.POISONED : STATES.WALKING;
+      this.speed = this.baseSpeed;
+      return;
+    }
+
+    // check if zombie is still close
+    const dist = this._distTo(this.combatTarget);
+    if (dist > this.type.detectRange * 1.5) {
+      this.combatTarget = null;
+      this.state = this.poisoned ? STATES.POISONED : STATES.WALKING;
+      this.speed = this.baseSpeed;
+      return;
+    }
+
+    // run away from zombie
+    const dx = this.x - this.combatTarget.x;
+    const dy = this.y - this.combatTarget.y;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    this.dirX = dx / d;
+    this.dirY = dy / d * 0.5;
+    this.facingRight = this.dirX > 0;
+
+    const spd = this._getEffectiveSpeed() * 1.5;
+    this.x += this.dirX * spd * dt;
+    this.y += this.dirY * spd * dt;
+    this._clampPosition();
+  }
+
+  _updateChasing(dt, particleSystem, allStickmen) {
+    this.walkCycle += dt * (this.type.id === 'zombie' ? 5 : 7);
+
+    this._updatePoison(dt, particleSystem);
+    if (this.state === STATES.DYING || this.state === STATES.CONVERTING) return;
+
+    if (!this.combatTarget || !this.combatTarget.isAlive()) {
+      this.combatTarget = null;
+      this.state = this.poisoned ? STATES.POISONED : STATES.WALKING;
+      return;
+    }
+
+    const dx = this.combatTarget.x - this.x;
+    const dy = this.combatTarget.y - this.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < 30) {
+      this.state = STATES.ATTACKING;
+      this.attackSwing = 0;
+      return;
+    }
+
+    const spd = this._getEffectiveSpeed() * (this.type.id === 'zombie' ? 1.3 : 1.1);
+    this.dirX = dx / dist;
+    this.dirY = dy / dist;
+    this.facingRight = this.dirX > 0;
+    this.x += this.dirX * spd * dt;
+    this.y += this.dirY * spd * dt;
+    this._clampPosition();
+  }
+
+  _updateAttacking(dt, particleSystem) {
+    this.attackSwing += dt * 8;
+
+    if (!this.combatTarget || !this.combatTarget.isAlive()) {
+      this.combatTarget = null;
+      this.state = this.poisoned ? STATES.POISONED : STATES.WALKING;
+      return;
+    }
+
+    const dist = this._distTo(this.combatTarget);
+    if (dist > 50) {
+      this.state = STATES.CHASING;
+      return;
+    }
+
+    if (this.attackCooldown <= 0) {
+      this.combatTarget.takeCombatDamage(this.type.attackDamage, this, particleSystem);
+      this.attackCooldown = this.type.attackInterval;
+      this.attackSwing = 0;
+    }
+  }
+
+  _updateConverting(dt, particleSystem) {
+    this.convertTimer += dt;
+    this.convertFlashTimer += dt;
+    this.convertShakeTimer += dt;
+
+    // spawn purple-green particles during conversion
+    if (Math.random() < 0.3) {
+      const color = Math.random() > 0.5 ? '#7b2d8b' : '#33aa33';
+      particleSystem.particles.push(new Particle(
+        this.x + (Math.random() - 0.5) * 30,
+        this.y - this.bodyHeight / 2,
+        (Math.random() - 0.5) * 40,
+        -50 - Math.random() * 30,
+        color,
+        3 + Math.random() * 3,
+        0.6 + Math.random() * 0.3,
+        -10
+      ));
+    }
+
+    if (this.convertTimer >= this.convertDuration) {
+      if (this.onConvert) this.onConvert(this);
+    }
+  }
+
+  _updatePoison(dt, particleSystem) {
+    if (!this.poisoned) return;
+    this.poisonTimer -= dt;
+    this.poisonTickTimer += dt;
+    if (this.poisonTickTimer >= 1) {
+      this.poisonTickTimer -= 1;
+      const dmg = this.poisonBaseDmg + (this.poisonStacks - 1) * 3;
+      this.hp = Math.max(0, this.hp - dmg);
+      particleSystem.spawnDamage(this.x, this.y - this.bodyHeight - 20, dmg);
+      if (this.hp <= 0) { this._startDying(); return; }
+    }
+    particleSystem.spawnPoisonBubble(this.x, this.y - this.bodyHeight / 2);
+    if (this.poisonTimer <= 0) {
+      this.poisoned = false;
+      this.poisonStacks = 0;
+      this.speed = this.baseSpeed;
+    }
+  }
+
+  _updateSeeking(dt, particleSystem, items) {
+    this.walkCycle += dt * (this.type.id === 'zombie' ? 4 : 6);
+
+    this._updatePoison(dt, particleSystem);
+    if (this.state === STATES.DYING || this.state === STATES.CONVERTING) return;
+
     if (!this.seekTarget || this.seekTarget.consumed) {
-      this.state = STATES.WALKING;
+      this.state = this.poisoned ? STATES.POISONED : STATES.WALKING;
       this.seekTarget = null;
       return;
     }
@@ -360,6 +609,13 @@ export class Stickman {
         this.heal(this.seekTarget.def.healAmount, particleSystem);
         this.seekTarget.consumed = true;
         this.seekTarget = null;
+        if (this.hp < this.maxHp) {
+          const nextFood = this._findNearestItem(items, 'food');
+          if (nextFood) {
+            this.seekTarget = nextFood;
+            return;
+          }
+        }
         this.state = this.poisoned ? STATES.POISONED : STATES.WALKING;
       } else if (this.state === STATES.SEEKING_FURNITURE) {
         const def = this.seekTarget.def;
@@ -383,23 +639,8 @@ export class Stickman {
     this.walkCycle = 0;
     this.restingTimer -= dt;
 
-    if (this.poisoned) {
-      this.poisonTimer -= dt;
-      this.poisonTickTimer += dt;
-      if (this.poisonTickTimer >= 1) {
-        this.poisonTickTimer -= 1;
-        const dmg = this.poisonBaseDmg + (this.poisonStacks - 1) * 3;
-        this.hp = Math.max(0, this.hp - dmg);
-        particleSystem.spawnDamage(this.x, this.y - this.bodyHeight - 20, dmg);
-        if (this.hp <= 0) { this._startDying(); return; }
-      }
-      particleSystem.spawnPoisonBubble(this.x, this.y - this.bodyHeight / 2);
-      if (this.poisonTimer <= 0) {
-        this.poisoned = false;
-        this.poisonStacks = 0;
-        this.speed = this.baseSpeed;
-      }
-    }
+    this._updatePoison(dt, particleSystem);
+    if (this.state === STATES.DYING || this.state === STATES.CONVERTING) return;
 
     if (this.restingTimer <= 0) {
       this.speedBuffTimer = this._speedBuffDurationPending || 8;
@@ -464,6 +705,32 @@ export class Stickman {
     if (this.y > maxY) { this.y = maxY; this.dirY = -Math.abs(this.dirY); }
   }
 
+  _distTo(other) {
+    return Math.sqrt((other.x - this.x) ** 2 + (other.y - this.y) ** 2);
+  }
+
+  _findNearestEnemy(allStickmen, typeId) {
+    let best = null;
+    let bestDist = Infinity;
+    for (const sm of allStickmen) {
+      if (sm === this || !sm.isAlive() || sm.type.id !== typeId) continue;
+      const d = this._distTo(sm);
+      if (d < bestDist) { bestDist = d; best = sm; }
+    }
+    return best;
+  }
+
+  _findNearestNonZombie(allStickmen) {
+    let best = null;
+    let bestDist = Infinity;
+    for (const sm of allStickmen) {
+      if (sm === this || !sm.isAlive() || sm.type.id === 'zombie') continue;
+      const d = this._distTo(sm);
+      if (d < bestDist) { bestDist = d; best = sm; }
+    }
+    return best;
+  }
+
   _findNearestItem(items, category) {
     let best = null;
     let bestDist = Infinity;
@@ -504,11 +771,18 @@ export class Stickman {
     switch (this.state) {
       case STATES.WALKING: case STATES.POISONED:
       case STATES.HIT: case STATES.SEEKING_FOOD:
-      case STATES.SEEKING_FURNITURE:
+      case STATES.SEEKING_FURNITURE: case STATES.FLEEING:
+      case STATES.CHASING:
         this._drawAlive(ctx);
+        break;
+      case STATES.ATTACKING:
+        this._drawAttacking(ctx);
         break;
       case STATES.RESTING:
         this._drawResting(ctx);
+        break;
+      case STATES.CONVERTING:
+        this._drawConverting(ctx);
         break;
       case STATES.DYING:
         this._drawDying(ctx);
@@ -559,6 +833,11 @@ export class Stickman {
   _getBodyColor() {
     if (this.flashRed) return this.type.hitColor;
     if (this.poisoned) return this.type.poisonColor;
+    if (this.type.id === 'zombie') {
+      const t = Date.now() / 400;
+      const blend = (Math.sin(t) + 1) / 2;
+      return blend > 0.5 ? this.type.color : this.type.altColor;
+    }
     return this.type.color;
   }
 
@@ -595,10 +874,17 @@ export class Stickman {
 
     // eyes
     ctx.fillStyle = bodyColor;
-    ctx.beginPath(); ctx.arc(x + flip * 3, headY - 2, 1.5, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(x + flip * 8, headY - 2, 1.5, 0, Math.PI * 2); ctx.fill();
+    if (this.type.id === 'zombie') {
+      ctx.fillStyle = '#ff0000';
+      ctx.beginPath(); ctx.arc(x + flip * 3, headY - 2, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + flip * 8, headY - 2, 2, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.arc(x + flip * 3, headY - 2, 1.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + flip * 8, headY - 2, 1.5, 0, Math.PI * 2); ctx.fill();
+    }
 
     // body
+    ctx.strokeStyle = bodyColor;
     ctx.beginPath(); ctx.moveTo(x, neckY); ctx.lineTo(x, hipY); ctx.stroke();
 
     // arms
@@ -609,6 +895,123 @@ export class Stickman {
     // legs
     ctx.beginPath(); ctx.moveTo(x, hipY); ctx.lineTo(x + Math.sin(swing) * this.limbLength * 0.8, hipY + this.limbLength); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(x, hipY); ctx.lineTo(x + Math.sin(-swing) * this.limbLength * 0.8, hipY + this.limbLength); ctx.stroke();
+
+    ctx.restore();
+  }
+
+  _drawAttacking(ctx) {
+    const x = this.x, y = this.y;
+    const bodyColor = this._getBodyColor();
+    ctx.strokeStyle = bodyColor;
+    ctx.fillStyle = bodyColor;
+    ctx.lineWidth = this.type.lineWidth;
+    ctx.lineCap = 'round';
+
+    const headY = y - this.bodyHeight - this.headRadius;
+    const neckY = y - this.bodyHeight;
+    const hipY = y;
+    const flip = this.facingRight ? 1 : -1;
+
+    // head
+    ctx.beginPath(); ctx.arc(x, headY, this.headRadius, 0, Math.PI * 2); ctx.stroke();
+    if (this.type.id === 'armored') this._drawHelmet(ctx, x, headY);
+    else if (this.type.id === 'soldier') this._drawBeret(ctx, x, headY);
+
+    // angry eyes
+    if (this.type.id === 'zombie') {
+      ctx.fillStyle = '#ff0000';
+    }
+    ctx.beginPath(); ctx.arc(x + flip * 3, headY - 2, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + flip * 8, headY - 2, 2, 0, Math.PI * 2); ctx.fill();
+
+    // body
+    ctx.strokeStyle = bodyColor;
+    ctx.beginPath(); ctx.moveTo(x, neckY); ctx.lineTo(x, hipY); ctx.stroke();
+
+    // attacking arm - swinging punch
+    const shY = neckY + 8;
+    const punchExtend = Math.sin(this.attackSwing) * this.limbLength * 1.3;
+    ctx.lineWidth = this.type.lineWidth + 1;
+    ctx.beginPath(); ctx.moveTo(x, shY); ctx.lineTo(x + punchExtend * flip, shY + 5); ctx.stroke();
+    // other arm
+    ctx.lineWidth = this.type.lineWidth;
+    ctx.beginPath(); ctx.moveTo(x, shY); ctx.lineTo(x - 10 * flip, shY + 18); ctx.stroke();
+
+    // legs (stable stance)
+    ctx.beginPath(); ctx.moveTo(x, hipY); ctx.lineTo(x + 12 * flip, hipY + this.limbLength); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, hipY); ctx.lineTo(x - 8 * flip, hipY + this.limbLength); ctx.stroke();
+  }
+
+  _drawConverting(ctx) {
+    const x = this.x, y = this.y;
+    const progress = this.convertTimer / this.convertDuration;
+
+    // shake
+    const shakeAmt = Math.sin(this.convertShakeTimer * 30) * (3 + progress * 8);
+    ctx.save();
+    ctx.translate(shakeAmt, 0);
+
+    // flash between original color and zombie colors
+    const flashRate = 4 + progress * 12;
+    const flash = Math.sin(this.convertFlashTimer * flashRate);
+    let bodyColor;
+    if (flash > 0.3) bodyColor = '#7b2d8b';
+    else if (flash < -0.3) bodyColor = '#33aa33';
+    else bodyColor = this.type.color;
+
+    ctx.strokeStyle = bodyColor;
+    ctx.fillStyle = bodyColor;
+    ctx.lineWidth = this.type.lineWidth;
+    ctx.lineCap = 'round';
+
+    const headY = y - this.bodyHeight - this.headRadius;
+    const neckY = y - this.bodyHeight;
+    const hipY = y;
+
+    // convulsing body
+    const convulse = Math.sin(this.convertTimer * 15) * 0.2 * progress;
+    ctx.translate(x, y);
+    ctx.rotate(convulse);
+    ctx.translate(-x, -y);
+
+    // head
+    ctx.beginPath(); ctx.arc(x, headY, this.headRadius, 0, Math.PI * 2); ctx.stroke();
+
+    // X eyes as it transforms
+    ctx.lineWidth = 2;
+    const ex1 = x - 4, ex2 = x + 4, eyeY = headY - 2;
+    if (progress < 0.5) {
+      ctx.beginPath(); ctx.moveTo(ex1 - 2, eyeY - 2); ctx.lineTo(ex1 + 2, eyeY + 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ex1 + 2, eyeY - 2); ctx.lineTo(ex1 - 2, eyeY + 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ex2 - 2, eyeY - 2); ctx.lineTo(ex2 + 2, eyeY + 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ex2 + 2, eyeY - 2); ctx.lineTo(ex2 - 2, eyeY + 2); ctx.stroke();
+    } else {
+      // red glowing eyes emerging
+      ctx.fillStyle = `rgba(255, 0, 0, ${(progress - 0.5) * 2})`;
+      ctx.beginPath(); ctx.arc(x - 4, eyeY, 2.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + 4, eyeY, 2.5, 0, Math.PI * 2); ctx.fill();
+    }
+
+    ctx.lineWidth = this.type.lineWidth;
+    ctx.strokeStyle = bodyColor;
+
+    // body + limbs convulsing
+    const limbJitter = Math.sin(this.convertTimer * 20) * 8 * progress;
+    ctx.beginPath(); ctx.moveTo(x, neckY); ctx.lineTo(x, hipY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, neckY + 8); ctx.lineTo(x + 15 + limbJitter, neckY + 28); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, neckY + 8); ctx.lineTo(x - 15 - limbJitter, neckY + 28); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, hipY); ctx.lineTo(x + 10 + limbJitter * 0.5, hipY + 20); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, hipY); ctx.lineTo(x - 10 - limbJitter * 0.5, hipY + 20); ctx.stroke();
+
+    // purple-green aura growing with progress
+    ctx.globalAlpha = progress * 0.4;
+    const auraGrad = ctx.createRadialGradient(x, y - this.bodyHeight / 2, 5, x, y - this.bodyHeight / 2, 40 + progress * 20);
+    auraGrad.addColorStop(0, 'rgba(123, 45, 139, 0.6)');
+    auraGrad.addColorStop(0.5, 'rgba(51, 170, 51, 0.3)');
+    auraGrad.addColorStop(1, 'rgba(123, 45, 139, 0)');
+    ctx.fillStyle = auraGrad;
+    ctx.fillRect(x - 60, y - this.bodyHeight - 30, 120, this.bodyHeight + 60);
+    ctx.globalAlpha = 1;
 
     ctx.restore();
   }

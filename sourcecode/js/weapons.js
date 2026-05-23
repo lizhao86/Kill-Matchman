@@ -1,4 +1,5 @@
 import { ITEM_DEFS } from './items.js';
+import { STICKMAN_TYPES } from './stickman-types.js';
 
 export const WEAPON_DEFS = [
   { id: 'knife',      name: '小刀',  icon: '🔪', damage: 10, type: 'melee' },
@@ -9,19 +10,29 @@ export const WEAPON_DEFS = [
   { id: 'bomb',       name: '炸弹',  icon: '💣', damage: 40, type: 'melee' },
 ];
 
+const SPAWN_DEFS = [
+  { id: 'normal',  name: '普通',  icon: '🧑', typeKey: 'normal' },
+  { id: 'soldier', name: '军人',  icon: '💂', typeKey: 'soldier' },
+  { id: 'armored', name: '装甲',  icon: '🛡️', typeKey: 'armored' },
+  { id: 'zombie',  name: '僵尸',  icon: '🧟', typeKey: 'zombie' },
+];
+
 export class WeaponManager {
-  constructor(stickmen, particleSystem, itemManager) {
+  constructor(stickmen, particleSystem, itemManager, spawnFn) {
     this.stickmen = stickmen;
     this.particles = particleSystem;
     this.itemManager = itemManager;
+    this.spawnFn = spawnFn;
 
-    this.mode = 'weapons'; // 'weapons' or 'items'
+    this.mode = 'weapons'; // 'weapons' | 'items' | 'spawn'
     this.equippedWeapon = null;
     this.equippedItem = null;
+    this.equippedSpawn = null;
 
     this.ghostEl = document.getElementById('dragGhost');
     this.weaponListEl = document.getElementById('weaponList');
     this.itemListEl = document.getElementById('itemList');
+    this.spawnListEl = document.getElementById('spawnList');
 
     this._hitCooldown = 0;
     this._hitInterval = 0.15;
@@ -32,6 +43,7 @@ export class WeaponManager {
 
     this._buildWeaponUI();
     this._buildItemUI();
+    this._buildSpawnUI();
     this._bindTabSwitcher();
     this._bindEvents();
   }
@@ -79,6 +91,16 @@ export class WeaponManager {
     }
   }
 
+  _buildSpawnUI() {
+    for (const sp of SPAWN_DEFS) {
+      const slot = document.createElement('div');
+      slot.className = 'spawn-slot';
+      slot.dataset.spawnId = sp.id;
+      slot.innerHTML = `<span class="spawn-icon">${sp.icon}</span><span class="spawn-name">${sp.name}</span>`;
+      this.spawnListEl.appendChild(slot);
+    }
+  }
+
   _bindTabSwitcher() {
     const tabs = document.querySelectorAll('.tab-btn');
     tabs.forEach(tab => {
@@ -88,12 +110,16 @@ export class WeaponManager {
         tab.classList.add('active');
 
         this.mode = tab.dataset.tab;
+        this.weaponListEl.classList.add('hidden');
+        this.itemListEl.classList.add('hidden');
+        this.spawnListEl.classList.add('hidden');
+
         if (this.mode === 'weapons') {
           this.weaponListEl.classList.remove('hidden');
-          this.itemListEl.classList.add('hidden');
-        } else {
-          this.weaponListEl.classList.add('hidden');
+        } else if (this.mode === 'items') {
           this.itemListEl.classList.remove('hidden');
+        } else if (this.mode === 'spawn') {
+          this.spawnListEl.classList.remove('hidden');
         }
       });
     });
@@ -122,6 +148,17 @@ export class WeaponManager {
       this._equipItem(item, slot);
     });
 
+    // spawn click to equip
+    this.spawnListEl.addEventListener('click', (e) => {
+      const slot = e.target.closest('.spawn-slot');
+      if (!slot) return;
+      e.preventDefault();
+      const sp = SPAWN_DEFS.find(s => s.id === slot.dataset.spawnId);
+      if (!sp) return;
+      if (this.equippedSpawn && this.equippedSpawn.id === sp.id) { this._unequip(); return; }
+      this._equipSpawn(sp, slot);
+    });
+
     // mouse
     window.addEventListener('mousedown', (e) => {
       if (e.target.closest('#bottomBar') || e.target.closest('#resetBtn') || e.target.closest('#tabSwitcher')) return;
@@ -129,6 +166,7 @@ export class WeaponManager {
       this._mouseX = e.clientX;
       this._mouseY = e.clientY;
       if (this.equippedItem) this._placeItem(e.clientX, e.clientY);
+      if (this.equippedSpawn) this._placeStickman(e.clientX, e.clientY);
     });
     window.addEventListener('mousemove', (e) => {
       this._mouseX = e.clientX;
@@ -145,6 +183,7 @@ export class WeaponManager {
       this._mouseX = t.clientX;
       this._mouseY = t.clientY;
       if (this.equippedItem) this._placeItem(t.clientX, t.clientY);
+      if (this.equippedSpawn) this._placeStickman(t.clientX, t.clientY);
     }, { passive: true });
     window.addEventListener('touchmove', (e) => {
       const t = e.touches[0];
@@ -156,7 +195,7 @@ export class WeaponManager {
 
     // right-click or Escape to unequip
     window.addEventListener('contextmenu', (e) => {
-      if (this.equippedWeapon || this.equippedItem) { e.preventDefault(); this._unequip(); }
+      if (this.equippedWeapon || this.equippedItem || this.equippedSpawn) { e.preventDefault(); this._unequip(); }
     });
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this._unequip();
@@ -200,16 +239,27 @@ export class WeaponManager {
     document.body.style.cursor = 'none';
   }
 
+  _equipSpawn(sp, slotEl) {
+    this._unequip();
+    this.equippedSpawn = sp;
+    slotEl.classList.add('active');
+    this.ghostEl.textContent = sp.icon;
+    this.ghostEl.classList.remove('hidden');
+    this._updateGhostPosition(this._mouseX, this._mouseY);
+    document.body.style.cursor = 'none';
+  }
+
   _unequip() {
     this.equippedWeapon = null;
     this.equippedItem = null;
+    this.equippedSpawn = null;
     this.ghostEl.classList.add('hidden');
-    document.querySelectorAll('.weapon-slot, .item-slot').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.weapon-slot, .item-slot, .spawn-slot').forEach(s => s.classList.remove('active'));
     document.body.style.cursor = 'crosshair';
   }
 
   _updateGhostPosition(clientX, clientY) {
-    if (!this.equippedWeapon && !this.equippedItem) return;
+    if (!this.equippedWeapon && !this.equippedItem && !this.equippedSpawn) return;
     this.ghostEl.style.left = clientX + 'px';
     this.ghostEl.style.top = clientY + 'px';
   }
@@ -230,6 +280,19 @@ export class WeaponManager {
     const horizonY = canvas.height * 0.48;
     if (y < horizonY || y > canvas.height - 100) return;
     this.itemManager.place(this.equippedItem, x, y);
+  }
+
+  _placeStickman(clientX, clientY) {
+    if (!this.equippedSpawn || !this.spawnFn) return;
+    const { x, y } = this._getCanvasCoords(clientX, clientY);
+    const canvas = document.getElementById('gameCanvas');
+    const horizonY = canvas.height * 0.48;
+    if (y < horizonY || y > canvas.height - 100) return;
+    const type = STICKMAN_TYPES[this.equippedSpawn.typeKey];
+    const sm = this.spawnFn(type);
+    sm.x = x;
+    sm.y = y;
+    this.stickmen = window._game.stickmen;
   }
 
   _tryAttack() {

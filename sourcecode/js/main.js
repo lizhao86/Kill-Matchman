@@ -1,5 +1,5 @@
 import { Stickman } from './stickman.js';
-import { getRandomType } from './stickman-types.js';
+import { STICKMAN_TYPES, getRandomType } from './stickman-types.js';
 import { ParticleSystem } from './particles.js';
 import { WeaponManager } from './weapons.js';
 import { ItemManager } from './items.js';
@@ -9,7 +9,7 @@ const ctx = canvas.getContext('2d');
 const resetBtn = document.getElementById('resetBtn');
 const killCountEl = document.getElementById('killCount');
 
-const MAX_STICKMEN = 8;
+const MAX_STICKMEN = 12;
 const INITIAL_STICKMEN = 6;
 const RESPAWN_DELAY = 2.0;
 
@@ -74,8 +74,9 @@ function generateSceneObjects() {
   }
 }
 
-function spawnStickman() {
-  const sm = new Stickman(canvas.width, canvas.height, getRandomType());
+function spawnStickman(typeConfig) {
+  const type = typeConfig || getRandomType();
+  const sm = new Stickman(canvas.width, canvas.height, type);
   const minY = sm._getMinY();
   const maxY = sm._getMaxY();
   const edge = Math.floor(Math.random() * 3);
@@ -86,7 +87,9 @@ function spawnStickman() {
   }
   sm.facingRight = sm.dirX > 0;
   sm.onDeath = onStickmanDeath;
+  sm.onConvert = onStickmanConvert;
   stickmen.push(sm);
+  return sm;
 }
 
 function onStickmanDeath(sm) {
@@ -98,6 +101,11 @@ function onStickmanDeath(sm) {
   respawnQueue.push(RESPAWN_DELAY);
 }
 
+function onStickmanConvert(sm) {
+  particles.spawnConvertBurst(sm.x, sm.y - sm.bodyHeight / 2);
+  sm.convertToZombie(STICKMAN_TYPES.zombie);
+}
+
 function init() {
   resizeCanvas();
   particles = new ParticleSystem();
@@ -106,7 +114,7 @@ function init() {
   stickmen = [];
   for (let i = 0; i < INITIAL_STICKMEN; i++) spawnStickman();
 
-  weapons = new WeaponManager(stickmen, particles, itemManager);
+  weapons = new WeaponManager(stickmen, particles, itemManager, spawnStickman);
   killCount = 0;
   killCountEl.textContent = '0';
   lastTime = performance.now();
@@ -150,7 +158,7 @@ function gameLoop(timestamp) {
   // update
   weapons.update(dt);
   const items = itemManager.getItems();
-  for (const sm of stickmen) sm.update(dt, particles, items);
+  for (const sm of stickmen) sm.update(dt, particles, items, stickmen);
   particles.update(dt);
 
   // draw

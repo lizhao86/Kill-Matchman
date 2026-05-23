@@ -188,6 +188,24 @@ export class ParticleSystem {
     }
   }
 
+  spawnConvertBurst(x, y) {
+    for (let i = 0; i < 20; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 60 + Math.random() * 100;
+      const color = Math.random() > 0.5 ? '#7b2d8b' : '#33aa33';
+      this.particles.push(new Particle(
+        x, y,
+        Math.cos(angle) * speed,
+        Math.sin(angle) * speed,
+        color,
+        3 + Math.random() * 4,
+        0.6 + Math.random() * 0.4,
+        100
+      ));
+    }
+    this.damageNumbers.push(new DamageNumber(x, y - 30, '感染!', '#7b2d8b'));
+  }
+
   // cloud puff for soul exit
   spawnCloudPuff(x, y) {
     for (let i = 0; i < 8; i++) {
